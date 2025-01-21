@@ -1,0 +1,141 @@
+--Section B starts here
+
+-- Code for function to extract month from payment_date table
+CREATE OR REPLACE FUNCTION sales_by_month(payment_date timestamp without time zone)
+	RETURNS int
+	LANGUAGE plpgsql
+AS
+$$
+DECLARE payment_month int;
+BEGIN
+	SELECT EXTRACT(MONTH FROM payment_date) INTO payment_month;
+	RETURN payment_month;
+END;
+$$
+
+-- Code for function to extract year from payment_date table
+CREATE OR REPLACE FUNCTION sales_by_year(payment_date timestamp without time zone)
+	RETURNS int
+	LANGUAGE plpgsql
+AS
+$$
+DECLARE payment_year int;
+BEGIN
+	SELECT EXTRACT(YEAR FROM payment_date) INTO payment_year;
+	RETURN payment_year;
+END;
+$$
+
+-- Test sales_by_month function
+SELECT sales_by_month('2018-08-22'), sales_by_year('2018-08-22');
+
+DROP TABLE sales_by_date;
+
+-- Create new table from payment table with transformed date
+CREATE TABLE sales_by_date(
+sales_by_month int,
+sales_by_year int,
+amount numeric(5,2),
+staff_id int);
+
+-- Insert data into sales_by_date
+INSERT INTO sales_by_date
+SELECT sales_by_month(payment_date), sales_by_year(payment_date), 
+amount, staff_id
+FROM payment;
+
+-- Test data is in new table
+SELECT * FROM sales_by_date;
+
+-- Section C starts here
+
+-- Code for detailed table
+DROP TABLE detailed_sales_by_date
+
+CREATE TABLE detailed_sales_by_date AS
+SELECT s.store_id, d.sales_by_month, d.sales_by_year, 
+d.amount
+FROM staff s
+LEFT JOIN sales_by_date d ON s.staff_id = d.staff_id;
+
+SELECT * FROM detailed_sales_by_date
+
+-- Code for summary table****
+DROP TABLE summary_sales_by_date
+
+CREATE TABLE summary_sales_by_date AS
+SELECT store_id, COUNT(*) AS sales_per_store
+FROM detailed_sales_by_date
+GROUP BY store_id;
+
+SELECT * FROM summary_sales_by_date
+
+-- Section D starts here
+
+-- Final data table
+SELECT store_id, sales_by_month,
+SUM(amount) AS total_sales
+FROM detailed_sales_by_date
+GROUP BY store_id, sales_by_month
+ORDER BY sales_by_month;
+
+
+-- Section E starts here
+
+-- Code for trigger/function to update summary table
+DROP TRIGGER IF EXISTS new_sales_by_date
+ON detailed_sales_by_date;
+
+CREATE OR REPLACE FUNCTION insert_new_sales_function()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+DELETE FROM summary_sales_by_date;
+INSERT INTO summary_sales_by_date
+SELECT store_id, COUNT(*) AS sales_per_store, amount
+FROM detailed_sales_by_date
+GROUP BY store_id, amount;
+RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER new_sales_by_date
+AFTER INSERT
+ON detailed_sales_by_date
+FOR EACH STATEMENT
+EXECUTE PROCEDURE insert_new_sales_function();
+
+-- Section F starts here
+
+-- Code for stored procedure 
+CREATE OR REPLACE PROCEDURE create_sales_by_date_table()
+LANGUAGE plpgsql
+AS $$
+BEGIN
+
+DROP TABLE IF EXISTS new_detailed_sales_by_date;
+DROP TABLE IF EXISTS new_summary_sales_by_date;
+
+CREATE TABLE new_detailed_sales_by_date AS
+SELECT s.store_id, d.sales_by_month, d.sales_by_year, 
+d.amount
+FROM staff s
+LEFT JOIN sales_by_date d ON s.staff_id = d.staff_id;
+
+CREATE TABLE new_summary_sales_by_date AS
+SELECT store_id, COUNT(*) AS sales_per_store
+FROM detailed_sales_by_date
+GROUP BY store_id;
+
+RETURN;
+END;
+$$;
+
+-- Call to create tables in stored procedure
+CALL create_sales_by_date_table();
+
+-- Select statements to run stored reports
+SELECT * FROM new_detailed_sales_by_date;
+
+SELECT * FROM new_summary_sales_by_date;
